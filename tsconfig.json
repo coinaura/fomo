@@ -1,7 +1,13 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" }
-  ]
+  /* This overrides the little “references” stub the Next/Vite template created.
+     Vercel will pick THIS file when compiling your Serverless Functions. */
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",          // ←-- forces ESM output (import / export)
+    "moduleResolution": "node",
+    "allowJs": true,
+    "strict": false,
+    "types": ["node"]
+  },
+  "include": ["api/**/*", "lib/**/*"]
 }
