@@ -1,17 +1,8 @@
-// src/main.tsx
-//---------------------------------------------------------------
-//  Entry file for Vite + React + Tailwind
-//---------------------------------------------------------------
-
+import 'bootstrap/dist/css/bootstrap.min.css';    // ← NEW
+import './styles.css';                            // ← NEW (custom tweaks)
+/* existing imports */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import App from './App.tsx';
 
-import App from './App';
-import './index.css';      // ← Tailwind directives live in this file
-
-// React 18 createRoot API
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+ReactDOM.createRoot(document.getElementById('root')!).render(<App />);

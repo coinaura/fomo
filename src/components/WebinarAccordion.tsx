@@ -1,73 +1,48 @@
 /* ------------------------------------------------------------------ */
-/*  WebinarAccordion.tsx                                              */
-/*  - lists sessions                                                  */
-/*  - shows inline registration form                                  */
-/*  - calls /api/register and redirects to the Zoom join_url          */
+/*  WebinarAccordion.tsx  –  modern card + pill UI (no Tailwind)      */
 /* ------------------------------------------------------------------ */
 
-import {
-  ChevronDown,
-  ChevronUp,
-  Calendar,
-  Clock3,
-  CheckSquare2,
-} from 'lucide-react';
+import { ChevronDown, ChevronUp, Calendar, Clock3, CheckSquare2 } from 'lucide-react';
 import { useState } from 'react';
 import clsx from 'clsx';
 
-/* ───────────── Types ───────────── */
+/* ---------- Types ---------- */
+type Occ      = { occurrence_id: string; start_time: string; duration: number };
+type Webinar  = { id: number; topic: string; occurrences: Occ[] };
 
-type Occ = { occurrence_id: string; start_time: string; duration: number };
-type Webinar = { id: number; topic: string; occurrences: Occ[] };
-
-/* ───────────── Helpers ─────────── */
-
+/* ---------- Helpers -------- */
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
   });
 
-/* ───────────── Component ───────── */
-
+/* ---------- Component ------ */
 export default function WebinarAccordion({ w }: { w: Webinar }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'list' | 'form'>('list');
-  const [occ, setOcc] = useState<Occ | null>(null);
+  const [occ , setOcc]  = useState<Occ | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    school: '',
-    email: '',
-    phone: '',
-  });
+  const [form, setForm] = useState({ name: '', school: '', email: '', phone: '' });
 
-  /* ---------- register handler ---------- */
+  /* --- hit Zoom register API & redirect --- */
   async function register(e: React.FormEvent) {
     e.preventDefault();
     if (!occ) return;
     setBusy(true);
 
     const res = await fetch('/api/register', {
-      method: 'POST',
+      method : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        webinarId: w.id,
-        occurrenceId: occ.occurrence_id,
-        name: form.name,
-        school: form.school,
-        email: form.email,
-        phone: form.phone,
+      body   : JSON.stringify({
+        webinarId    : w.id,
+        occurrenceId : occ.occurrence_id,
+        ...form
       }),
     });
 
     const raw = await res.text();
-    const payload =
-      raw.trim().startsWith('{') ? JSON.parse(raw) : { error: raw };
+    const payload = raw.trim().startsWith('{') ? JSON.parse(raw) : { error: raw };
 
     if (res.ok && payload.join_url) {
       window.location.replace(payload.join_url);
@@ -77,57 +52,46 @@ export default function WebinarAccordion({ w }: { w: Webinar }) {
     }
   }
 
-  /* ---------- tiny input helper ---------- */
-  const input = (
-    key: keyof typeof form,
-    ph: string,
-    required = true,
-    type = 'text'
-  ) => (
+  /* --- small input helper --- */
+  const input = (key: keyof typeof form, ph: string, required = true, type = 'text') => (
     <input
+      className="input"
       type={type}
       required={required}
       value={form[key]}
       placeholder={ph}
-      onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-      className="border rounded px-3 py-2 w-full"
+      onChange={e => setForm({ ...form, [key]: e.target.value })}
     />
   );
 
-  /* -------------- UI --------------------- */
+  /* ---------- UI ----------- */
   return (
-    <div className="border rounded mb-4">
+    <div className="card">
       {/* accordion header */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center w-full p-2 bg-gray-50 hover:bg-gray-100"
-      >
-        <CheckSquare2 className="text-green-600 mr-1" />
-        <span className="flex-1 text-left font-medium">{w.topic}</span>
+      <button onClick={() => setOpen(!open)} className="flex items-center w-full">
+        <CheckSquare2 className="text-green-600 me-1" />
+        <span className="flex-1 text-start card-title">{w.topic}</span>
         {open ? <ChevronUp /> : <ChevronDown />}
       </button>
 
       {/* accordion body */}
       {open && (
-        <div className="p-4 space-y-4">
+        <div className="mt-3">
           {/* session grid */}
           {step === 'list' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {w.occurrences.map((o) => (
+            <div>
+              {w.occurrences.map(o => (
                 <button
                   key={o.occurrence_id}
-                  onClick={() => {
-                    setOcc(o);
-                    setStep('form');
-                  }}
+                  onClick={() => { setOcc(o); setStep('form'); }}
                   className={clsx(
-                    'flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50',
+                    'pill',
                     occ?.occurrence_id === o.occurrence_id && 'bg-blue-100'
                   )}
                 >
-                  <Calendar className="h-4 w-4" />
+                  <Calendar className="me-1" size={14}/>
                   {fmt(o.start_time)}
-                  <Clock3 className="h-4 w-4 ml-auto text-gray-400" />
+                  <Clock3 className="ms-2 me-1 text-gray-500" size={14}/>
                   <span className="text-xs">{o.duration}m</span>
                 </button>
               ))}
@@ -136,26 +100,22 @@ export default function WebinarAccordion({ w }: { w: Webinar }) {
 
           {/* registration form */}
           {step === 'form' && occ && (
-            <div className="max-w-md mx-auto">
-              <p className="mb-4 font-medium">
-                Session:&nbsp;
-                <span className="text-blue-700">{fmt(occ.start_time)}</span>
+            <form className="form mt-4" onSubmit={register}>
+              <h2>Register</h2>
+
+              <p className="text-center mb-3">
+                <strong>{fmt(occ.start_time)}</strong>
               </p>
 
-              <form className="space-y-3" onSubmit={register}>
-                {input('name', 'Full Name *')}
-                {input('school', 'School Name (Last Name) *')}
-                {input('email', 'Email *', true, 'email')}
-                {input('phone', 'Phone')}
+              {input('name'  , 'Full Name *')}
+              {input('school', 'School Name (Last Name) *')}
+              {input('email' , 'Email *', true, 'email')}
+              {input('phone' , 'Phone')}
 
-                <button
-                  disabled={busy}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded py-2"
-                >
-                  {busy ? 'Registering…' : 'Register & Join'}
-                </button>
-              </form>
-            </div>
+              <button className="btn mt-2" disabled={busy}>
+                {busy ? 'Registering…' : 'Register & Join'}
+              </button>
+            </form>
           )}
         </div>
       )}
