@@ -1,38 +1,40 @@
-/* --------------------------------------------------------------------
-   App.tsx – glossy fixed-header page with auto-select session + form
---------------------------------------------------------------------*/
 import { useEffect, useState } from 'react';
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 type Occurrence = { occurrence_id: string; start_time: string; duration: number };
 type Webinar    = { id: number; topic: string; occurrences: Occurrence[] };
 
-/* ── Date helpers ──────────────────────────────────────────────────── */
+/* ── Date formatting ───────────────────────────────────────────────── */
 const fmt = (iso: string, opts?: Intl.DateTimeFormatOptions) =>
   new Date(iso).toLocaleString(undefined, opts);
+const fmtDate = (iso: string) => fmt(iso, { month: 'short', day: 'numeric', year: 'numeric' });
+const fmtTime = (iso: string) => fmt(iso, { hour: '2-digit', minute: '2-digit' });
+const fmtDateTime = (iso: string) =>
+  `${fmtDate(iso)} — ${fmtTime(iso)}`;
 
-const fmtDate = (iso: string) =>
-  fmt(iso, { month: 'short', day: 'numeric', year: 'numeric' });
-
-const fmtTime = (iso: string) =>
-  fmt(iso, { hour: '2-digit', minute: '2-digit' });
-
-/* ── SessionPicker (controlled) ───────────────────────────────────── */
+/* ══════════ SessionPicker ══════════ */
 function SessionPicker({
   webinars,
-  selectedLabel,
+  selectedSession,
   onSelect,
 }: {
   webinars: Webinar[];
-  /** Human label for the currently selected session */
-  selectedLabel: string;
-  /** Called when user clicks a session */
-  onSelect: (webId: number, occ: Occurrence, label: string) => void;
+  /** current selection (auto or user) */
+  selectedSession: { webId: number; occ: Occurrence } | null;
+  /** fires when user picks manually */
+  onSelect: (webId: number, occ: Occurrence) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const label = selectedLabel || 'Choose a session';
+  const [open, setOpen]   = useState(false);
+  const [label, setLabel] = useState('Choose a session');
 
-  /* close when clicking outside */
+  /* keep label in sync with selectedSession */
+  useEffect(() => {
+    if (selectedSession) {
+      setLabel(fmtDateTime(selectedSession.occ.start_time));
+    }
+  }, [selectedSession]);
+
+  /* close dropdown when clicking outside */
   useEffect(() => {
     const close = (e: MouseEvent) =>
       !document.getElementById('ss-root')?.contains(e.target as Node) && setOpen(false);
@@ -45,26 +47,22 @@ function SessionPicker({
       <button className="session-trigger" onClick={() => setOpen(!open)}>
         {label}
       </button>
-
       {open && (
         <div className="session-menu">
           {webinars.flatMap(w =>
-            w.occurrences.map(o => {
-              const pretty = `${fmtDate(o.start_time)} — ${fmtTime(o.start_time)}`;
-              return (
-                <button
-                  key={o.occurrence_id}
-                  className="session-item"
-                  onClick={() => {
-                    onSelect(w.id, o, pretty);
-                    setOpen(false);
-                  }}
-                >
-                  <span>{fmtDate(o.start_time)}</span>
-                  <span className="time">{fmtTime(o.start_time)}</span>
-                </button>
-              );
-            })
+            w.occurrences.map(o => (
+              <button
+                key={o.occurrence_id}
+                className="session-item"
+                onClick={() => {
+                  onSelect(w.id, o);
+                  setOpen(false);
+                }}
+              >
+                <span>{fmtDate(o.start_time)}</span>
+                <span className="time">{fmtTime(o.start_time)}</span>
+              </button>
+            ))
           )}
         </div>
       )}
@@ -72,43 +70,37 @@ function SessionPicker({
   );
 }
 
-/* ── Main component ────────────────────────────────────────────────── */
+/* ══════════ Main App ══════════ */
 export default function App() {
   const [webinars, setWebinars] = useState<Webinar[]>([]);
-  const [session , setSession ] = useState<{ webId: number; occ: Occurrence }>();
-  const [label   , setLabel   ] = useState('');
+  const [session , setSession ] = useState<{ webId: number; occ: Occurrence } | null>(null);
   const [busy    , setBusy    ] = useState(false);
   const [form    , setForm    ] = useState({ name:'', school:'', email:'', phone:'' });
 
-  /* fetch webinars once */
+  /* 1 Fetch all webinars */
   useEffect(() => {
     fetch('/api/webinars')
       .then(r => r.json())
       .then(setWebinars)
-      .catch(err => console.error('API error', err));
+      .catch(console.error);
   }, []);
 
-  /* auto-select nearest upcoming session */
+  /* 2 Auto-select nearest upcoming session once webinars load */
   useEffect(() => {
     if (webinars.length && !session) {
       const now = Date.now();
-      // flatten all sessions
       const all = webinars.flatMap(w =>
         w.occurrences.map(o => ({ webId: w.id, occ: o }))
       );
-      // sort by start_time
       all.sort((a, b) =>
         new Date(a.occ.start_time).getTime() - new Date(b.occ.start_time).getTime()
       );
-      // pick first upcoming or fallback to earliest
       const next = all.find(x => new Date(x.occ.start_time).getTime() > now) || all[0];
-      const pretty = `${fmtDate(next.occ.start_time)} — ${fmtTime(next.occ.start_time)}`;
       setSession(next);
-      setLabel(pretty);
     }
   }, [webinars, session]);
 
-  /* register & redirect */
+  /* 3 Submit registration */
   async function register(e: React.FormEvent) {
     e.preventDefault();
     if (!session) return;
@@ -120,39 +112,36 @@ export default function App() {
       body   : JSON.stringify({
         webinarId   : session.webId,
         occurrenceId: session.occ.occurrence_id,
-        ...form
+        ...form,
       }),
     }).then(r => r.json());
 
-    if (res.join_url) {
-      window.location.replace(res.join_url);
-    } else {
+    if (res.join_url) window.location.replace(res.join_url);
+    else {
       alert(res.error || 'Registration failed');
       setBusy(false);
     }
   }
 
-  const firstWebinar = webinars[0];
+  /* For header title */
+  const topic = webinars[0]?.topic || 'Webinar';
 
   return (
     <>
-      {/* Fixed glossy header */}
+      {/* fixed glossy header */}
       <header className="header">
-        <h1>{firstWebinar?.topic || 'Webinar'}</h1>
+        <h1>{topic}</h1>
       </header>
 
       <main>
-        {/* Controlled dropdown session-picker */}
+        {/* session picker */}
         <SessionPicker
           webinars={webinars}
-          selectedLabel={label}
-          onSelect={(webId, occ, pretty) => {
-            setSession({ webId, occ });
-            setLabel(pretty);
-          }}
+          selectedSession={session}
+          onSelect={(webId, occ) => setSession({ webId, occ })}
         />
 
-        {/* Registration form */}
+        {/* registration form */}
         <form className="form-card" onSubmit={register}>
           <h2>
             {session
@@ -167,10 +156,10 @@ export default function App() {
               placeholder={
                 f==='school' ? 'School Name (Last Name)' :
                 f==='phone'  ? 'Phone' :
-                `${f[0].toUpperCase()}${f.slice(1)}`
+                f[0].toUpperCase() + f.slice(1)
               }
               type={f==='email' ? 'email' : 'text'}
-              required={f!=='phone'}
+              required={f !== 'phone'}
               disabled={!session}
               value={form[f]}
               onChange={e => setForm({ ...form, [f]: e.target.value })}
