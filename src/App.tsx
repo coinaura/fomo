@@ -1,28 +1,38 @@
 /* --------------------------------------------------------------------
-   App.tsx – glossy fixed-header page with dropdown session picker + form
----------------------------------------------------------------------*/
+   App.tsx – glossy fixed-header page with auto-select session + form
+--------------------------------------------------------------------*/
 import { useEffect, useState } from 'react';
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 type Occurrence = { occurrence_id: string; start_time: string; duration: number };
 type Webinar    = { id: number; topic: string; occurrences: Occurrence[] };
 
-/* ── Date helper ───────────────────────────────────────────────────── */
+/* ── Date helpers ──────────────────────────────────────────────────── */
 const fmt = (iso: string, opts?: Intl.DateTimeFormatOptions) =>
   new Date(iso).toLocaleString(undefined, opts);
 
-/* ── SessionPicker component ───────────────────────────────────────── */
+const fmtDate = (iso: string) =>
+  fmt(iso, { month: 'short', day: 'numeric', year: 'numeric' });
+
+const fmtTime = (iso: string) =>
+  fmt(iso, { hour: '2-digit', minute: '2-digit' });
+
+/* ── SessionPicker (controlled) ───────────────────────────────────── */
 function SessionPicker({
   webinars,
+  selectedLabel,
   onSelect,
 }: {
   webinars: Webinar[];
+  /** Human label for the currently selected session */
+  selectedLabel: string;
+  /** Called when user clicks a session */
   onSelect: (webId: number, occ: Occurrence, label: string) => void;
 }) {
-  const [open, setOpen]   = useState(false);
-  const [label, setLabel] = useState('Choose a session');
+  const [open, setOpen] = useState(false);
+  const label = selectedLabel || 'Choose a session';
 
-  /* close dropdown when clicking outside */
+  /* close when clicking outside */
   useEffect(() => {
     const close = (e: MouseEvent) =>
       !document.getElementById('ss-root')?.contains(e.target as Node) && setOpen(false);
@@ -36,29 +46,28 @@ function SessionPicker({
         {label}
       </button>
 
-      <div className="session-menu">
-        {webinars.flatMap(w =>
-          w.occurrences.map(o => (
-            <button
-              key={o.occurrence_id}
-              className="session-item"
-              onClick={() => {
-                const pretty =
-                  `${fmt(o.start_time, { month: 'short', day: 'numeric', year: 'numeric' })} — ` +
-                  fmt(o.start_time, { hour: '2-digit', minute: '2-digit' });
-                onSelect(w.id, o, pretty);
-                setLabel(pretty);
-                setOpen(false);
-              }}
-            >
-              {fmt(o.start_time, { month: 'short', day: 'numeric', year: 'numeric' })}
-              <span className="time">
-                {fmt(o.start_time, { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </button>
-          ))
-        )}
-      </div>
+      {open && (
+        <div className="session-menu">
+          {webinars.flatMap(w =>
+            w.occurrences.map(o => {
+              const pretty = `${fmtDate(o.start_time)} — ${fmtTime(o.start_time)}`;
+              return (
+                <button
+                  key={o.occurrence_id}
+                  className="session-item"
+                  onClick={() => {
+                    onSelect(w.id, o, pretty);
+                    setOpen(false);
+                  }}
+                >
+                  <span>{fmtDate(o.start_time)}</span>
+                  <span className="time">{fmtTime(o.start_time)}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -67,24 +76,37 @@ function SessionPicker({
 export default function App() {
   const [webinars, setWebinars] = useState<Webinar[]>([]);
   const [session , setSession ] = useState<{ webId: number; occ: Occurrence }>();
+  const [label   , setLabel   ] = useState('');
   const [busy    , setBusy    ] = useState(false);
   const [form    , setForm    ] = useState({ name:'', school:'', email:'', phone:'' });
 
   /* fetch webinars once */
   useEffect(() => {
-    fetch('/api/webinars').then(r => r.json()).then(setWebinars)
+    fetch('/api/webinars')
+      .then(r => r.json())
+      .then(setWebinars)
       .catch(err => console.error('API error', err));
   }, []);
 
-  /* ─ Measure header height → CSS var so content never overlaps */
+  /* auto-select nearest upcoming session */
   useEffect(() => {
-    const apply = () => {
-      const h = document.querySelector<HTMLElement>('.header')?.offsetHeight || 0;
-      document.documentElement.style.setProperty('--header-h', `${h}px`);
-    };
-    apply(); window.addEventListener('resize', apply);
-    return () => window.removeEventListener('resize', apply);
-  }, []);
+    if (webinars.length && !session) {
+      const now = Date.now();
+      // flatten all sessions
+      const all = webinars.flatMap(w =>
+        w.occurrences.map(o => ({ webId: w.id, occ: o }))
+      );
+      // sort by start_time
+      all.sort((a, b) =>
+        new Date(a.occ.start_time).getTime() - new Date(b.occ.start_time).getTime()
+      );
+      // pick first upcoming or fallback to earliest
+      const next = all.find(x => new Date(x.occ.start_time).getTime() > now) || all[0];
+      const pretty = `${fmtDate(next.occ.start_time)} — ${fmtTime(next.occ.start_time)}`;
+      setSession(next);
+      setLabel(pretty);
+    }
+  }, [webinars, session]);
 
   /* register & redirect */
   async function register(e: React.FormEvent) {
@@ -100,10 +122,14 @@ export default function App() {
         occurrenceId: session.occ.occurrence_id,
         ...form
       }),
-    }).then(r=>r.json());
+    }).then(r => r.json());
 
-    if (res.join_url) window.location.replace(res.join_url);
-    else { alert(res.error || 'Registration failed'); setBusy(false); }
+    if (res.join_url) {
+      window.location.replace(res.join_url);
+    } else {
+      alert(res.error || 'Registration failed');
+      setBusy(false);
+    }
   }
 
   const firstWebinar = webinars[0];
@@ -111,23 +137,26 @@ export default function App() {
   return (
     <>
       {/* Fixed glossy header */}
-      <header className="header"><h1>{firstWebinar?.topic || 'Webinar'}</h1></header>
+      <header className="header">
+        <h1>{firstWebinar?.topic || 'Webinar'}</h1>
+      </header>
 
       <main>
-        {/* Session dropdown */}
+        {/* Controlled dropdown session-picker */}
         <SessionPicker
           webinars={webinars}
-          onSelect={(webId, occ) => setSession({ webId, occ })}
+          selectedLabel={label}
+          onSelect={(webId, occ, pretty) => {
+            setSession({ webId, occ });
+            setLabel(pretty);
+          }}
         />
 
         {/* Registration form */}
         <form className="form-card" onSubmit={register}>
           <h2>
             {session
-              ? fmt(session.occ.start_time, {
-                  weekday:'short', month:'short', day:'numeric',
-                  year:'numeric', hour:'2-digit', minute:'2-digit'
-                })
+              ? fmtDateTime(session.occ.start_time)
               : 'Choose a session'}
           </h2>
 
@@ -142,8 +171,8 @@ export default function App() {
               }
               type={f==='email' ? 'email' : 'text'}
               required={f!=='phone'}
-              value={form[f]}
               disabled={!session}
+              value={form[f]}
               onChange={e => setForm({ ...form, [f]: e.target.value })}
             />
           ))}
